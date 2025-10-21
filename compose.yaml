@@ -1,0 +1,44 @@
+services:
+  talaria:
+    image: kelindar/talaria:latest
+    container_name: talaria
+    ports:
+      - "8081:8080" # gRPC ingestion port
+      - "8042:8042" # Presto Thrift connector port
+    volumes:
+      - ./config/talaria.yaml:/config.yaml:ro
+      - ./data:/data
+      - ./output:/output
+    command: ["-config=/config.yaml"]
+    restart: unless-stopped
+
+  presto:
+    image: prestodb/presto:latest
+    container_name: presto
+    ports:
+      - "8080:8080" # Presto UI and coordinator
+    volumes:
+      - ./config/presto/catalog/thrift.properties:/opt/presto-server/etc/catalog/thrift.properties:ro
+    depends_on:
+      - talaria
+    restart: unless-stopped
+
+  python:
+    platform: linux/amd64
+    image: python:3.9
+    container_name: talaria-python
+    working_dir: /app
+    volumes:
+      - ./injest_scripts/:/app # Mount current directory to /app in container
+    stdin_open: true
+    tty: true
+    command: >
+      bash -c "
+      pip install --upgrade pip && 
+      pip install 'grpcio>=1.28.1,<2.0' 'grpcio-tools>=1.28.1,<2.0' 'protobuf>=3.12.0,<4.0' --only-binary :all: &&
+      pip install --no-cache-dir --no-deps TalariaClient && 
+      bash"
+
+volumes:
+  data:
+  output:
