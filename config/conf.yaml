@@ -1,0 +1,26 @@
+mode: standalone
+env: dev
+appName: talaria
+
+storage:
+  dir: "/data"
+
+writers:
+  grpc:
+    port: 8080 # gRPC endpoint for ingesting events
+
+readers:
+  presto:
+    schema: eventlog
+    port: 8042 # Thrift port for Presto
+
+tables:
+  eventlog:
+    name: eventlog
+    schema: "file:////config/schema.yaml"
+    ttl: 3600
+    hashBy: event
+    compact:
+      interval: 60
+      file:
+        dir: "/data"

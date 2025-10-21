@@ -1,24 +1,43 @@
 services:
   talaria:
-    image: kelindar/talaria:latest
+    # platform: linux/amd64
+    image: talaria:custom
     container_name: talaria
     ports:
       - "8081:8080" # gRPC ingestion port
       - "8042:8042" # Presto Thrift connector port
     volumes:
-      - ./config/talaria.yaml:/config.yaml:ro
+      - ./config/conf.yaml:/conf.yaml:ro
       - ./data:/data
       - ./output:/output
-    command: ["-config=/config.yaml"]
+      - ./config/schema.yaml:/config/schema.yaml
+      - ./config/entrypoint.sh:/root/entrypoint.sh:ro
+    environment:
+      - TALARIA_URI=file:////conf.yaml
+      # - TALARIA_MODE=standalone
+      # - TALARIA_ENV=development
+      # - TALARIA_STORAGE_DIR=/data
+      # - TALARIA_WRITERS_GRPC_PORT=8080
+      # - TALARIA_READERS_PRESTO_SCHEMA=x
+      # - TALARIA_READERS_PRESTO_PORT=8042
+      # - TALARIA_TABLES_TIMESERIES_NAME=eventLog
+      # - TALARIA_TABLES_TIMESERIES_TTL=7200
+      # - TALARIA_TABLES_TIMESERIES_COMPACT_INTERVAL=120
+    # - TALARIA_READERS={"presto":{"port":8042,"schema":"data"}}
+    # - TALARIA_TABLES_METRICS_COMPACT_FILE_DIR=/output
     restart: unless-stopped
+    # command: ["-config=/conf.yaml"]
 
   presto:
-    image: prestodb/presto:latest
+    image: prestodb/presto:0.282
     container_name: presto
     ports:
       - "8080:8080" # Presto UI and coordinator
     volumes:
       - ./config/presto/catalog/thrift.properties:/opt/presto-server/etc/catalog/thrift.properties:ro
+      - ./config/presto/config.properties:/opt/presto-server/etc/config.properties:ro
+      - ./config/presto/jvm.config:/opt/presto-server/etc/jvm.config:ro
+      - ./config/presto/node.properties:/opt/presto-server/etc/node.properties
     depends_on:
       - talaria
     restart: unless-stopped
@@ -38,6 +57,18 @@ services:
       pip install 'grpcio>=1.28.1,<2.0' 'grpcio-tools>=1.28.1,<2.0' 'protobuf>=3.12.0,<4.0' --only-binary :all: &&
       pip install --no-cache-dir --no-deps TalariaClient && 
       bash"
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - "minio_data:/data"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=admin
+      - MINIO_DEFAULT_BUCKETS=data
 
 volumes:
   data:
