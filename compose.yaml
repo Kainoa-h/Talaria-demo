@@ -1,37 +1,21 @@
 services:
   talaria:
-    # platform: linux/amd64
     image: talaria:custom
     container_name: talaria
-    depends_on:
-      - minio
-      - minio-client
     ports:
       - "8081:8080" # gRPC ingestion port
       - "8042:8042" # Presto Thrift connector port
     volumes:
       - ./config/conf.yaml:/conf.yaml:ro
       - ./data:/data
-      - ./output:/output
       - ./config/schema.yaml:/config/schema.yaml
       - ./config/entrypoint.sh:/root/entrypoint.sh:ro
     environment:
       - TALARIA_URI=file:////conf.yaml
-      # - TALARIA_MODE=standalone
-      # - TALARIA_ENV=development
-      # - TALARIA_STORAGE_DIR=/data
-      # - TALARIA_WRITERS_GRPC_PORT=8080
-      # - TALARIA_READERS_PRESTO_SCHEMA=x
-      # - TALARIA_READERS_PRESTO_PORT=8042
-      # - TALARIA_TABLES_TIMESERIES_NAME=eventLog
-      # - TALARIA_TABLES_TIMESERIES_TTL=7200
-      # - TALARIA_TABLES_TIMESERIES_COMPACT_INTERVAL=120
-    # - TALARIA_READERS={"presto":{"port":8042,"schema":"data"}}
-    # - TALARIA_TABLES_METRICS_COMPACT_FILE_DIR=/output
     restart: unless-stopped
-    # command: ["-config=/conf.yaml"]
 
   presto:
+    platform: linux/amd64
     image: prestodb/presto:0.282
     container_name: presto
     ports:
@@ -60,37 +44,3 @@ services:
       pip install 'grpcio>=1.28.1,<2.0' 'grpcio-tools>=1.28.1,<2.0' 'protobuf>=3.12.0,<4.0' --only-binary :all: &&
       pip install --no-cache-dir --no-deps TalariaClient && 
       bash"
-
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    ports:
-      - "9000:9000"
-      - "9091:9091"
-    volumes:
-      - "./minio_data:/data"
-    environment:
-      - MINIO_ROOT_USER=adminadmin
-      - MINIO_ROOT_PASSWORD=adminadmin
-    command: server /data --console-address ":9091"
-
-  minio-client:
-    container_name: minio-client
-    restart: always
-    image: minio/mc:latest
-    volumes:
-      - ./mc_config:/root/.mc
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc config host rm minio;
-      /usr/bin/mc config host add --quiet --api s3v4 minio http://minio:9000 adminadmin adminadmin;    
-      /usr/bin/mc mb minio/data --ignore-existing;
-      /usr/bin/mc anonymous set public minio/data;
-      sleep infinity;
-      "
-
-volumes:
-  data:
-  output:

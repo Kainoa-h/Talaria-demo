@@ -197,3 +197,4 @@ data
 talaria.proto
 mc_config
 minio_data/.minio.sys
+config/presto/node.properties

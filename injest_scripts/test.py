@@ -6,8 +6,10 @@ import time
 
 client = Client("talaria:8080")
 batch = [
-    {"event": "testEvent1", "time": int(time.time())},
-    {"event": "testEvent2", "time": int(time.time()) + 1},
+    {"event": "404 Error", "time": int(time.time())},
+    {"event": "418 Error", "time": int(time.time()) + 1},
 ]
 
 client.ingest_batch(batch)
+
+print("Sent events to the grpc writer!")
