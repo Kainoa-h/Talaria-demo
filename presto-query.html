@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Presto Query Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .query-section {
+            margin-bottom: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.running {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #28a745;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #dc3545;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .raw-json {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Presto Query Tool</h1>
+    
+    <div class="query-section">
+        <label for="prestoUrl"><strong>Presto URL:</strong></label>
+        <input type="text" id="prestoUrl" value="http://localhost:9090" style="width: 300px; padding: 5px; margin: 10px 0;">
+        
+        <br>
+        
+        <label for="catalog"><strong>Catalog:</strong></label>
+        <input type="text" id="catalog" value="thrift" style="width: 150px; padding: 5px; margin: 10px 10px 10px 0;">
+        
+        <label for="schema"><strong>Schema:</strong></label>
+        <input type="text" id="schema" value="eventlog" style="width: 150px; padding: 5px; margin: 10px 0;">
+        
+        <br>
+        
+        <label for="query"><strong>SQL Query:</strong></label>
+        <textarea id="query" placeholder="SELECT * FROM eventlog WHERE event = 'test'">SELECT * FROM eventlog WHERE event = 'testEvent1'</textarea>
+        
+        <button id="executeBtn" onclick="executeQuery()">Execute Query</button>
+    </div>
+    
+    <div class="results">
+        <div id="status"></div>
+        <div id="tableResults"></div>
+        <div id="rawResults"></div>
+    </div>
+
+    <script>
+        let pollInterval = null;
+
+        async function executeQuery() {
+            const prestoUrl = document.getElementById('prestoUrl').value;
+            const catalog = document.getElementById('catalog').value;
+            const schema = document.getElementById('schema').value;
+            const query = document.getElementById('query').value;
+            const statusDiv = document.getElementById('status');
+            const tableDiv = document.getElementById('tableResults');
+            const rawDiv = document.getElementById('rawResults');
+            const executeBtn = document.getElementById('executeBtn');
+
+            // Clear previous results
+            tableDiv.innerHTML = '';
+            rawDiv.innerHTML = '';
+            executeBtn.disabled = true;
+
+            // Show status
+            statusDiv.className = 'status running';
+            statusDiv.textContent = 'Submitting query...';
+
+            try {
+                // Submit the query
+                const response = await fetch(`${prestoUrl}/v1/statement`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Presto-User': 'admin',
+                        'X-Presto-Catalog': catalog,
+                        'X-Presto-Schema': schema,
+                    },
+                    body: query
+                });
+
+                const initialData = await response.json();
+                
+                if (initialData.error) {
+                    throw new Error(initialData.error.message);
+                }
+
+                statusDiv.textContent = `Query submitted. ID: ${initialData.id}`;
+
+                // Poll for results
+                await pollForResults(initialData.nextUri, statusDiv, tableDiv, rawDiv);
+
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `Error: ${error.message}`;
+                executeBtn.disabled = false;
+            }
+        }
+
+        async function pollForResults(nextUri, statusDiv, tableDiv, rawDiv) {
+            const executeBtn = document.getElementById('executeBtn');
+            let allData = [];
+            let columns = null;
+
+            while (nextUri) {
+                try {
+                    const response = await fetch(nextUri);
+                    const data = await response.json();
+
+                    statusDiv.textContent = `Query state: ${data.stats.state} | Processed rows: ${data.stats.processedRows}`;
+
+                    if (data.error) {
+                        throw new Error(data.error.message);
+                    }
+
+                    // Collect column info
+                    if (data.columns && !columns) {
+                        columns = data.columns;
+                    }
+
+                    // Collect data rows
+                    if (data.data) {
+                        allData = allData.concat(data.data);
+                    }
+
+                    // Check if query is finished
+                    if (!data.nextUri) {
+                        // Query completed
+                        statusDiv.className = 'status success';
+                        statusDiv.textContent = `Query completed! Rows returned: ${allData.length}`;
+                        
+                        // Display results
+                        displayTable(columns, allData, tableDiv);
+                        displayRawJson(data, rawDiv);
+                        
+                        executeBtn.disabled = false;
+                        break;
+                    }
+
+                    nextUri = data.nextUri;
+                    
+                    // Wait a bit before next poll
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                } catch (error) {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = `Error: ${error.message}`;
+                    executeBtn.disabled = false;
+                    break;
+                }
+            }
+        }
+
+        function displayTable(columns, data, tableDiv) {
+            if (!columns || data.length === 0) {
+                tableDiv.innerHTML = '<p>No results returned.</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr>';
+            
+            // Add column headers
+            columns.forEach(col => {
+                html += `<th>${col.name} (${col.type})</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            // Add data rows
+            data.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => {
+                    html += `<td>${cell !== null ? cell : 'NULL'}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            tableDiv.innerHTML = html;
+        }
+
+        function displayRawJson(data, rawDiv) {
+            rawDiv.innerHTML = '<h3>Raw Response</h3><div class="raw-json">' + 
+                               JSON.stringify(data, null, 2) + '</div>';
+        }
+    </script>
+</body>
+</html>

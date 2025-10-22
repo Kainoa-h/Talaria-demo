@@ -3,6 +3,9 @@ services:
     # platform: linux/amd64
     image: talaria:custom
     container_name: talaria
+    depends_on:
+      - minio
+      - minio-client
     ports:
       - "8081:8080" # gRPC ingestion port
       - "8042:8042" # Presto Thrift connector port
@@ -60,15 +63,33 @@ services:
 
   minio:
     image: minio/minio:latest
+    container_name: minio
     ports:
       - "9000:9000"
-      - "9001:9001"
+      - "9091:9091"
     volumes:
-      - "minio_data:/data"
+      - "./minio_data:/data"
     environment:
-      - MINIO_ROOT_USER=admin
-      - MINIO_ROOT_PASSWORD=admin
-      - MINIO_DEFAULT_BUCKETS=data
+      - MINIO_ROOT_USER=adminadmin
+      - MINIO_ROOT_PASSWORD=adminadmin
+    command: server /data --console-address ":9091"
+
+  minio-client:
+    container_name: minio-client
+    restart: always
+    image: minio/mc:latest
+    volumes:
+      - ./mc_config:/root/.mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host rm minio;
+      /usr/bin/mc config host add --quiet --api s3v4 minio http://minio:9000 adminadmin adminadmin;    
+      /usr/bin/mc mb minio/data --ignore-existing;
+      /usr/bin/mc anonymous set public minio/data;
+      sleep infinity;
+      "
 
 volumes:
   data:
